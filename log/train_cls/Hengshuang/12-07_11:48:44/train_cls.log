@@ -331,3 +331,13 @@
 [2021-12-07 18:42:51,828][__main__][INFO] - Test Instance Accuracy: 0.904032, Class Accuracy: 0.876294
 [2021-12-07 18:42:51,829][__main__][INFO] - Best Instance Accuracy: 0.914113, Class Accuracy: 0.880534
 [2021-12-07 18:42:51,830][__main__][INFO] - Epoch 60 (60/200):
+[2021-12-07 18:48:28,973][__main__][INFO] - Train Instance Accuracy: 0.906412
+[2021-12-07 18:48:28,974][__main__][INFO] - Load dataset ...
+[2021-12-07 18:49:48,248][__main__][INFO] - Test Instance Accuracy: 0.898790, Class Accuracy: 0.865511
+[2021-12-07 18:49:48,249][__main__][INFO] - Best Instance Accuracy: 0.914113, Class Accuracy: 0.880534
+[2021-12-07 18:49:48,250][__main__][INFO] - Epoch 61 (61/200):
+[2021-12-07 18:55:25,640][__main__][INFO] - Train Instance Accuracy: 0.907138
+[2021-12-07 18:55:25,641][__main__][INFO] - Load dataset ...
+[2021-12-07 18:56:45,397][__main__][INFO] - Test Instance Accuracy: 0.901210, Class Accuracy: 0.865976
+[2021-12-07 18:56:45,397][__main__][INFO] - Best Instance Accuracy: 0.914113, Class Accuracy: 0.880534
+[2021-12-07 18:56:45,398][__main__][INFO] - Epoch 62 (62/200):
