@@ -39,4 +39,6 @@ Currently only Hengshuang's method is implemented.
 Some code and training settings are borrowed from https://github.com/yanx27/Pointnet_Pointnet2_pytorch.
 Code for [PCT: Point Cloud Transformer (Meng-Hao Guo et al.)](https://arxiv.org/abs/2012.09688) is adapted from the author's Jittor implementation https://github.com/MenghaoGuo/PCT.
 
-#leNet_ptf
+
+# leNet_ptf
+
