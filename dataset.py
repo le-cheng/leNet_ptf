@@ -19,7 +19,7 @@ class ModelNetDataLoader(Dataset):
             908 test
     """
     def __init__(self, root, npoint=1024, split='train', uniform=True, 
-            normal_channel=True, cache_size=15000, classes=10):
+            normal_channel=True, cache_size=15000, classes=40):
         self.root    = root
         self.npoints = npoint
         self.uniform = uniform

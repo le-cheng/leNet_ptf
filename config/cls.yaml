@@ -9,7 +9,11 @@ num_workers : 16  # 数据处理进程数
 num_point: 1024
 optimizer: SGD
 weight_decay: 1e-4
+
+# else
 normal: True
+num_class: 40
+input_dim: 6
 
 defaults:
   - _self_
