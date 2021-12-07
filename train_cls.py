@@ -1,63 +1,62 @@
-"""
-Author: Benny
-Date: Nov 2019
-"""
-# import argparse
-from time import time
-import numpy as np
-import os
-from omegaconf import OmegaConf
-import torch
-# import datetime
-import logging
-from torch import nn
-# from pathlib import Path
-from tqdm import tqdm
-# import syst
-import provider
-import importlib
-import shutil
-import hydra
-# import omegaconf
-from dataset import ModelNetDataLoader
-from tensorboardX import SummaryWriter
+from __future__ import print_function
 
+import importlib
+import logging
+import os
+import shutil
+from time import time
+
+import hydra
+import numpy as np
+import torch
+from omegaconf import DictConfig, OmegaConf
+from tensorboardX import SummaryWriter
+from torch import nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+import provider  # 数据增强
+from dataset import ModelNetDataLoader
 
 
 @hydra.main(config_path='config', config_name='cls')
-def main(args):
-    OmegaConf.set_struct(args, False)# Using OmegaConf.set_struct, it is possible to prevent the creation of fields that do not exist
-
-    '''Hyper Parameter超参数'''
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
-    # os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in args.train_gpu)
-     
-
+def main(cfg: DictConfig):
+    OmegaConf.set_struct(cfg, False)# Using OmegaConf.set_struct, it is possible to prevent the creation of fields that do not exist
     global logger
     logger = logging.getLogger(__name__) # name
+    print(OmegaConf.to_yaml(cfg))
 
-    
-    print('\nargs:')
-    print(OmegaConf.to_yaml(args))
+    '''Hyper Parameter超参数'''
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu)
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in args.train_gpu)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f'Using {device}, GPU is NO.{str(cfg.gpu)} device')
 
     '''DATA LOADING'''
     logger.info('Load dataset ...')
-    DATA_PATH = hydra.utils.to_absolute_path('modelnet40_normal_resampled/')
-
-    TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train', normal_channel=args.normal)
-    TEST_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='test', normal_channel=args.normal)
-    trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=args.batch_size, shuffle=True, num_workers=16)
-    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=args.batch_size, shuffle=False, num_workers=16)
+    DATA_PATH = hydra.utils.to_absolute_path('data/modelnet40_normal_resampled/')
+    TRAIN_DATASET = ModelNetDataLoader(
+        root=DATA_PATH, npoint=cfg.num_point, 
+        split='train' , normal_channel=cfg.normal)
+    TEST_DATASET = ModelNetDataLoader(
+        root=DATA_PATH, npoint=cfg.num_point, 
+        split='test'  , normal_channel=cfg.normal)
+    trainDataLoader = DataLoader(
+        TRAIN_DATASET , batch_size=cfg.batch_size, 
+        shuffle=True  , num_workers=cfg.num_workers)
+    testDataLoader =  DataLoader(
+        TEST_DATASET  , batch_size=cfg.batch_size, 
+        shuffle=False , num_workers=cfg.num_workers)
 
     
     '''MODEL LOADING'''
     logger.info('Load MODEL ...')
-    args.num_class = 40
-    args.input_dim = 6 if args.normal else 3
-    shutil.copy(hydra.utils.to_absolute_path('models/{}/model.py'.format(args.model.name)), '.')
+    cfg.num_class = 40
+    cfg.input_dim = 6 if cfg.normal else 3
+    shutil.copy(hydra.utils.to_absolute_path('models/{}/model.py'.format(cfg.model.name)), '.')
 
     # 从model获取PointTransformerCls，传入args，并将模型放到GPU上
-    classifier = getattr(importlib.import_module('models.{}.model'.format(args.model.name)), 'PointTransformerCls')(args).cuda()
+    model = getattr(importlib.import_module('models.{}.model'.format(cfg.model.name)), 'PointTransformerCls')(cfg).cuda()
     
     # 数据并行,效率低，运算也不平衡，但是内存不够大可以用这种方法
     # classifier = nn.DataParallel(classifier.cuda())
@@ -67,25 +66,25 @@ def main(args):
     try:
         checkpoint = torch.load('best_model.pth')
         start_epoch = checkpoint['epoch']
-        classifier.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['model_state_dict'])
         logger.info('Use pretrain model')
     except:
         logger.info('No existing model, starting training from scratch...')
         start_epoch = 0
 
 
-    if args.optimizer == 'Adam':
+    if cfg.optimizer == 'Adam':
         optimizer = torch.optim.Adam(
-            classifier.parameters(),
-            lr=args.learning_rate,
+            model.parameters(),
+            lr=cfg.learning_rate,
             betas=(0.9, 0.999),
             eps=1e-08,
-            weight_decay=args.weight_decay
+            weight_decay=cfg.weight_decay
         )
     else:
         optimizer = torch.optim.SGD(
-            classifier.parameters(), 
-            lr=args.learning_rate, 
+            model.parameters(), 
+            lr=cfg.learning_rate, 
             momentum=0.9,
             weight_decay=0.0001
             )
@@ -94,8 +93,8 @@ def main(args):
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: 1/(epoch+1))
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, 
-        milestones = [80,120,160], 
-        gamma=args.scheduler_gamma
+        milestones = [120,180], 
+        gamma=cfg.scheduler_gamma
         )
     global_epoch = 0
     global_step = 0
@@ -108,10 +107,10 @@ def main(args):
     logger.info('Start training...')
     writer = SummaryWriter()
     t1 = time()
-    for epoch in range(start_epoch,args.epoch):
-        logger.info('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
+    for epoch in range(start_epoch,cfg.epoch):
+        logger.info('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, cfg.epoch))
         
-        classifier.train()
+        model.train()
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
             # print(points.data.size())
@@ -126,7 +125,7 @@ def main(args):
             points, target = points.cuda(), target.cuda()
             optimizer.zero_grad()
 
-            pred = classifier(points)
+            pred = model(points)
             loss = criterion(pred, target.long())
             pred_choice = pred.data.max(1)[1]
             correct = pred_choice.eq(target.long().data).cpu().sum()
@@ -144,7 +143,7 @@ def main(args):
 
         with torch.no_grad():
             # instance_acc, class_acc = test(classifier.eval(), testDataLoader)
-            instance_acc, class_acc = test(classifier, testDataLoader)
+            instance_acc, class_acc = test(model, testDataLoader)
 
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
@@ -168,7 +167,7 @@ def main(args):
                     'epoch': best_epoch,
                     'instance_acc': instance_acc,
                     'class_acc': class_acc,
-                    'model_state_dict': classifier.state_dict(),
+                    'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                 }
                 torch.save(state, savepath)

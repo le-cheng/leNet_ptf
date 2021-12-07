@@ -7,19 +7,35 @@ import json
 
 
 class ModelNetDataLoader(Dataset):
-    def __init__(self, root, npoint=1024, split='train', uniform=False, normal_channel=True, cache_size=15000):
-        self.root = root
+    """ModelNet40
+
+    Args:
+        12311 pointclouds
+        40:
+            9843 train
+            2468 test
+        10:
+            3991 train
+            908 test
+    """
+    def __init__(self, root, npoint=1024, split='train', uniform=True, 
+            normal_channel=True, cache_size=15000, classes=10):
+        self.root    = root
         self.npoints = npoint
         self.uniform = uniform
-        self.catfile = os.path.join(self.root, 'modelnet40_shape_names.txt')
+        self.cache_n = cache_size  # how many data points to cache in memory
+        self.cache   = {}  # from index to (point_set, cls) tuple
+        self.catfile = os.path.join(self.root, 'modelnet' + str(classes) + '_shape_names.txt')
 
         self.cat = [line.rstrip() for line in open(self.catfile)]
         self.classes = dict(zip(self.cat, range(len(self.cat))))
         self.normal_channel = normal_channel
 
         shape_ids = {}
-        shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_train.txt'))]
-        shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_test.txt'))]
+        shape_ids['train'] = [line.rstrip() for line in open(
+            os.path.join(self.root, 'modelnet' + str(classes) +'_train.txt'))]
+        shape_ids['test'] = [line.rstrip() for line in open(
+            os.path.join(self.root, 'modelnet' + str(classes) +'_test.txt'))]
 
         assert (split == 'train' or split == 'test')
         shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]
@@ -28,37 +44,51 @@ class ModelNetDataLoader(Dataset):
                          in range(len(shape_ids[split]))]
         print('The size of %s data is %d'%(split,len(self.datapath)))
 
-        self.cache_size = cache_size  # how many data points to cache in memory
-        self.cache = {}  # from index to (point_set, cls) tuple
-
     def __len__(self):
         return len(self.datapath)
-
-    def _get_item(self, index):
+    
+    def fps(self, xyz, npoint):
+        """farthest_point_sample
+        Input:
+            xyz: pointcloud data, [N, 3]
+            npoint: number of samples
+        Return:
+            centroids: sampled pointcloud index, [npoint]
+        """
+        N, C = xyz.shape
+        centroids = torch.zeros(npoint, dtype=torch.long)
+        distance = torch.ones(N) * 1e10
+        farthest = torch.randint(0, N, (1,), dtype=torch.long)
+        for i in range(npoint):
+            centroids[i] = farthest
+            centroid = xyz[farthest, :3].view(1, 3)
+            dist = torch.sum((xyz[:,:3] - centroid) ** 2, -1) # TODO: jia
+            distance = torch.min(distance, dist)
+            farthest = torch.max(distance, -1)[1]
+        return centroids
+        
+    def __getitem__(self, index):
         if index in self.cache:
-            point_set, cls = self.cache[index]
+            point_set, label = self.cache[index]
         else:
             fn = self.datapath[index]
-            cls = self.classes[self.datapath[index][0]]
-            cls = np.array([cls]).astype(np.int32)
+            label = self.classes[self.datapath[index][0]]
+            label = np.array([label]).astype(np.int32)
             point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
             if self.uniform:
-                point_set = farthest_point_sample(point_set, self.npoints)
+                point_set = torch.Tensor(point_set)
+                point_idx = self.fps(point_set, self.npoints)
+                point_set = point_set[point_idx,:]
+                point_set = point_set.data.numpy()
             else:
-                point_set = point_set[0:self.npoints,:]
-
+                point_set = point_set[0:self.npoints,:]# TODO: this
+      
             point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
-
             if not self.normal_channel:
                 point_set = point_set[:, 0:3]
-
-            if len(self.cache) < self.cache_size:
-                self.cache[index] = (point_set, cls)
-
-        return point_set, cls
-
-    def __getitem__(self, index):
-        return self._get_item(index)
+            if len(self.cache) < self.cache_n:
+                self.cache[index] = (point_set, label)
+        return point_set, label
 
 
 class PartNormalDataset(Dataset):
