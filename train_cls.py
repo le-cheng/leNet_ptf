@@ -104,7 +104,7 @@ def main(cfg: DictConfig):
     t1 = time()
     for epoch in range(start_epoch,cfg.epoch):
         logger.info('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, cfg.epoch))
-        train(model, Train_DataLoader, optimizer, epoch, cfg.epoch)
+        train(model, Train_DataLoader, optimizer, epoch, lossfn)
         scheduler.step()
         instance_acc, class_acc = test(model, Test_DataLoader)
 
@@ -141,7 +141,7 @@ def main(cfg: DictConfig):
     writer.close()
     return 0
 
-def train(model, train_loader, optimizer, epoch, allepoch):
+def train(model, Train_DataLoader, optimizer, epoch, lossfn):
     model.train()
     correct = 0
     for batch_id, data in tqdm(enumerate(Train_DataLoader, 0), total=len(Train_DataLoader), smoothing=0.9, desc='Train_Epoch'):
@@ -165,12 +165,11 @@ def train(model, train_loader, optimizer, epoch, allepoch):
         # 计算
         pred = pred.argmax(dim=1, keepdim=True)
         correct += pred.eq(target.view_as(pred)).cpu().sum().item()
-        global_step += 1
     train_instance_acc = correct / len(Train_DataLoader.dataset)
     logger.info('Train Instance Accuracy: %f' % train_instance_acc)
     writer.add_scalar('train_Acc', train_instance_acc, epoch)
 
-def test(model, loader, num_class=40):
+def test(model, test_loader, num_class=40):
     """验证
     Args:
         model : 网络
@@ -185,7 +184,8 @@ def test(model, loader, num_class=40):
     # mean_correct = []
     class_acc = np.zeros((num_class,3))
     with torch.no_grad():
-        for j, (points, target) in tqdm(enumerate(loader), total=len(loader), smoothing=0.9, desc='Eval_Epoch'):
+        correct=0
+        for j, (points, target) in tqdm(enumerate(test_loader), total=len(test_loader), smoothing=0.9, desc='Eval_Epoch'):
             # target = target[:, 0]
             points, target = points.cuda(), target[:, 0].cuda()
             pred = model(points)
@@ -207,3 +207,5 @@ def test(model, loader, num_class=40):
 
 if __name__ == '__main__':
     main()
+
+
