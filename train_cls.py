@@ -8,6 +8,7 @@ from time import time
 
 import hydra
 import numpy as np
+from numpy import random
 import torch
 from omegaconf import DictConfig, OmegaConf
 from tensorboardX import SummaryWriter
@@ -34,14 +35,19 @@ def main(cfg: DictConfig):
     logger.info(f'Using {device}, GPU is NO.{str(cfg.gpu)} device')
 
     '''DATA LOADING'''
+    manual_seed = 1234
+    random.seed(manual_seed)
+    np.random.seed(manual_seed)
     logger.info('Load dataset ...')
     DATA_PATH = hydra.utils.to_absolute_path('data/modelnet40_normal_resampled/')
     TRAIN_DATASET = ModelNetDataLoader(
         root=DATA_PATH, npoint=cfg.num_point, 
-        split='train' , normal_channel=cfg.normal)
+        split='train' , normal_channel=cfg.normal, 
+        classes=cfg.num_class, uniform=cfg.uniform)
     TEST_DATASET = ModelNetDataLoader(
         root=DATA_PATH, npoint=cfg.num_point, 
-        split='test'  , normal_channel=cfg.normal)
+        split='test'  , normal_channel=cfg.normal, 
+        classes=cfg.num_class, uniform=cfg.uniform)
     Train_DataLoader = DataLoader(
         dataset=TRAIN_DATASET , batch_size=cfg.batch_size, 
         shuffle=True  , num_workers=cfg.num_workers)
@@ -87,7 +93,7 @@ def main(cfg: DictConfig):
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: 1/(epoch+1))
     scheduler = MultiStepLR(
         optimizer, 
-        milestones = [120,180], 
+        milestones = [cfg.epoch*0.6,cfg.epoch*0.8], 
         gamma=cfg.scheduler_gamma
         )
     global_epoch = 0
@@ -104,9 +110,10 @@ def main(cfg: DictConfig):
     t1 = time()
     for epoch in range(start_epoch,cfg.epoch):
         logger.info('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, cfg.epoch))
+
         train(model, Train_DataLoader, optimizer, epoch, lossfn)
         scheduler.step()
-        instance_acc, class_acc = test(model, Test_DataLoader)
+        instance_acc, class_acc = test(model, Test_DataLoader, cfg.num_class)
 
         if (instance_acc > best_instance_acc):
             best_instance_acc = instance_acc
@@ -144,6 +151,7 @@ def main(cfg: DictConfig):
 def train(model, Train_DataLoader, optimizer, epoch, lossfn):
     model.train()
     correct = 0
+    epoch_loss = 0 
     for batch_id, data in tqdm(enumerate(Train_DataLoader, 0), total=len(Train_DataLoader), smoothing=0.9, desc='Train_Epoch'):
         points, target = data
         points = points.data.numpy() #  (16, 1024, 6)
@@ -165,20 +173,15 @@ def train(model, Train_DataLoader, optimizer, epoch, lossfn):
         # 计算
         pred = pred.argmax(dim=1, keepdim=True)
         correct += pred.eq(target.view_as(pred)).cpu().sum().item()
+        epoch_loss+=loss
     train_instance_acc = correct / len(Train_DataLoader.dataset)
+    epoch_loss = epoch_loss / len(Train_DataLoader)
     logger.info('Train Instance Accuracy: %f' % train_instance_acc)
+    logger.info('Train Instance Loss: %f' % epoch_loss)
     writer.add_scalar('train_Acc', train_instance_acc, epoch)
+    writer.add_scalar('train_Loss', epoch_loss, epoch)
 
 def test(model, test_loader, num_class=40):
-    """验证
-    Args:
-        model : 网络
-        loader : 数据
-        num_class (int, optional): 分类数量. Defaults to 40.
-
-    Returns:
-        instance_acc，class_acc
-    """
     model.eval()# 一定要model.eval()在推理之前调用方法以将 dropout 和批量归一化层设置为评估模式。否则会产生不一致的推理结果。
     logger.info('Load dataset ...')
     # mean_correct = []
@@ -186,26 +189,28 @@ def test(model, test_loader, num_class=40):
     with torch.no_grad():
         correct=0
         for j, (points, target) in tqdm(enumerate(test_loader), total=len(test_loader), smoothing=0.9, desc='Eval_Epoch'):
-            # target = target[:, 0]
-            points, target = points.cuda(), target[:, 0].cuda()
+            points, target = points.cuda(), target[:, 0]
             pred = model(points)
-
-            pred = pred.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            pred = pred.argmax(dim=1, keepdim=True).cpu()  # get the index of the max log-probability
 
             for cat in np.unique(target.cpu()):
                 cat_idex = (target==cat)
-                classacc = pred[cat_idex].eq(target[cat_idex].long().data).cpu().sum()
-
-                class_acc[cat,0]+= classacc.item()
-                class_acc[cat,1]+= cat_idex.sum()
+                classacc = pred[cat_idex].eq(target[cat_idex].view_as(pred[cat_idex])).sum()
+                class_acc[cat,0] += classacc.item()
+                class_acc[cat,1] += cat_idex.sum().item()
             correct += pred.eq(target.view_as(pred)).cpu().sum()
+
         test_instance_acc=correct / len(test_loader.dataset)
-    class_acc[:,2] =  class_acc[:,0] / class_acc[:,1]
-    class_acc = np.mean(class_acc[:,2])
+        class_acc[:,2] =  class_acc[:,0] / class_acc[:,1]
+        class_acc = np.mean(class_acc[:,2])
     return test_instance_acc, class_acc
 
 
 if __name__ == '__main__':
+    # 加载gc模块
+    import gc
+    # 垃圾回收gc.collect() 返回处理这些循环引用一共释放掉的对象个数
+    gc.collect()
     main()
 
 

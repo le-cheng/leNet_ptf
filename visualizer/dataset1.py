@@ -2,9 +2,15 @@ import numpy as np
 import os
 from torch.utils.data import Dataset
 import torch
-from pointnet_util import farthest_point_sample, pc_normalize
+# from pointnet_util import farthest_point_sample, pc_normalize
 import json
 
+def pc_normalize1(pc):
+    centroid = np.mean(pc, axis=0)
+    pc = pc - centroid
+    m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
+    pc = pc / m
+    return pc
 
 class ModelNetDataLoader(Dataset):
     """ModelNet40
@@ -86,7 +92,7 @@ class ModelNetDataLoader(Dataset):
                 # point_set = point_set[choice, :]
                 # label = label[choice]
       
-            point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
+            point_set[:, 0:3] = pc_normalize1(point_set[:, 0:3])
             if not self.normal_channel:
                 point_set = point_set[:, 0:3]
             if len(self.cache) < self.cache_n:
@@ -183,7 +189,7 @@ class PartNormalDataset(Dataset):
             seg = data[:, -1].astype(np.int32)
             if len(self.cache) < self.cache_size:
                 self.cache[index] = (point_set, cls, seg)
-        point_set[:, 0:3] = pc_normalize(point_set[:, 0:3]) # TODO:
+        point_set[:, 0:3] = pc_normalize1(point_set[:, 0:3]) # TODO:
 
         choice = np.random.choice(len(seg), self.npoints, replace=True)
         # resample

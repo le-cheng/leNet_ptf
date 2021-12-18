@@ -112,22 +112,22 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False, knn=
     B, N, C = xyz.shape
     S = npoint
     fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint]
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     new_xyz = index_points(xyz, fps_idx)
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     if knn:
         dists = square_distance(new_xyz, xyz)  # B x npoint x N
         idx = dists.argsort()[:, :, :nsample]  # B x npoint x K
     else:
         idx = query_ball_point(radius, nsample, xyz, new_xyz)
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
     if points is not None:
-        grouped_points = index_points(points, idx)
+        grouped_points = index_points(points, idx) # TODO:
         new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1) # [B, npoint, nsample, C+D]
     else:
         new_points = grouped_xyz_norm
@@ -169,9 +169,11 @@ class PointNetSetAbstraction(nn.Module):
         last_channel = in_channel
         for out_channel in mlp:
             self.mlp_convs.append(nn.Conv2d(last_channel, out_channel, 1))
+            #in_channels,就是输入的四维张量[N, C, H, W]中的C了，即输入张量的channels数。
             self.mlp_bns.append(nn.BatchNorm2d(out_channel))
             last_channel = out_channel
         self.group_all = group_all
+        self.fc1 = nn.Linear(self.nsample, 1)
 
     def forward(self, xyz, points):
         """
@@ -192,8 +194,17 @@ class PointNetSetAbstraction(nn.Module):
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
             new_points =  F.relu(bn(conv(new_points)))
+        new_points = new_points.permute(0, 1, 3, 2)
+        new_points = self.fc1(new_points).transpose(1, 2)
+        # .reshape(new_points.shape[0],new_points.shape[2],new_points.shape[1])
+        new_points = torch.einsum('bmnf->bmn', new_points)
+        # print('7',new_points.shape)
+        # print('8',new_points[0].shape)
+        # new_points.transpose(1, 2)
+        # raise NotImplementedError()
+        # print('8',new_points.shape)
 
-        new_points = torch.max(new_points, 2)[0].transpose(1, 2)
+        # new_points = torch.max(new_points, 2)[0].transpose(1, 2)# 不合理，邻居点被直接变成一个点
         return new_xyz, new_points
 
 

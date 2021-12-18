@@ -65,15 +65,28 @@ class Backbone(nn.Module):
         self.nblocks = nblocks
     
     def forward(self, x):
-        # print(x.shape)
+        # print('-2: ',x.shape) # torch.Size([16, 1024, 6])
         xyz = x[..., :3]
         points = self.transformer1(xyz, self.fc1(x))[0]
+        # print('-1: ',points.shape) # torch.Size([16, 1024, 32])
 
         xyz_and_feats = [(xyz, points)]
         for i in range(self.nblocks):
             xyz, points = self.transition_downs[i](xyz, points)
+            # print(i,':',xyz.shape, points.shape)
             points = self.transformers[i](xyz, points)[0]
+            # print(i,':',points.shape)
             xyz_and_feats.append((xyz, points))
+            # 0 : torch.Size([16, 256, 3]) torch.Size([16, 256, 64])
+            # 0 : torch.Size([16, 256, 64])
+            # 1 : torch.Size([16, 64, 3]) torch.Size([16, 64, 128])
+            # 1 : torch.Size([16, 64, 128])
+            # 2 : torch.Size([16, 16, 3]) torch.Size([16, 16, 256])
+            # 2 : torch.Size([16, 16, 256])
+            # 3 : torch.Size([16, 4, 3]) torch.Size([16, 4, 512])
+            # 3 : torch.Size([16, 4, 512])
+
+        # raise NotImplementedError()
         return points, xyz_and_feats
 
 
@@ -81,20 +94,23 @@ class PointTransformerCls(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.backbone = Backbone(cfg)
-        npoints, nblocks, nneighbor, n_c, d_points = cfg.num_point, cfg.model.nblocks, cfg.model.nneighbor, cfg.num_class, cfg.input_dim
+        nblocks , n_c = cfg.model.nblocks, cfg.num_class
+        # npoints, nneighbor, d_points = cfg.num_point,  cfg.model.nneighbor,  cfg.input_dim
+        # self.nblocks = nblocks
         self.fc2 = nn.Sequential(
-            nn.Linear(32 * 2 ** nblocks, 256),
+            nn.Linear(32 * 2 ** nblocks, 256), # nblocks = 4
             nn.ReLU(),
             nn.Linear(256, 64),
             nn.ReLU(),
             nn.Linear(64, n_c)
         )
-        self.nblocks = nblocks
     
     def forward(self, x):
-        # print(x.shape)
+        # print(x.shape) # torch.Size([16, 1024, 6])
         points, _ = self.backbone(x)
+        # print(points.shape) # torch.Size([16, 4, 512])
         res = self.fc2(points.mean(1))
+        # print(res.shape) # torch.Size([16, 10])
         return res
 
 

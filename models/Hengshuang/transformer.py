@@ -26,18 +26,26 @@ class TransformerBlock(nn.Module):
         
     # xyz: b x n x 3, features: b x n x f
     def forward(self, xyz, features):
+        # print(features.shape)
         dists = square_distance(xyz, xyz)
-        knn_idx = dists.argsort()[:, :, :self.k]  # b x n x k 排序取前k个
+        # print('dists: ', dists.shape) # torch.Size([8, 1024, 1024])
+        knn_idx = dists.argsort()[:, :, :self.k]  # b x n x k 排序取前k（16）个
+        # print('knn_idx: ', knn_idx.shape) # torch.Size([8, 1024, 16])
         knn_xyz = index_points(xyz, knn_idx)
+        # print('knn_idx: ', knn_idx.shape) # torch.Size([8, 1024, 16, 3])
         
         pre = features
         x = self.fc1(features)
         q, k, v = self.w_qs(x), index_points(self.w_ks(x), knn_idx), index_points(self.w_vs(x), knn_idx)
+        # torch.Size([8, 1024, 512])
+        # torch.Size([8, 1024, 16, 512])
+        # torch.Size([8, 1024, 16, 512])
 
-        pos_enc = self.fc_delta(xyz[:, :, None] - knn_xyz)  # b x n x k x f
+        pos_enc = self.fc_delta(xyz[:, :, None] - knn_xyz)  # b x n x k x f torch.Size([8, 1024, 16, 512])
         
-        attn = self.fc_gamma(q[:, :, None] - k + pos_enc)
-        attn = F.softmax(attn / np.sqrt(k.size(-1)), dim=-2)  # b x n x k x f
+        # attn = self.fc_gamma(q[:, :, None] - k + pos_enc)
+        attn = self.fc_gamma(pos_enc) # torch.Size([8, 1024, 16, 512])
+        attn = F.softmax(attn, dim=-2)  # b x n x k x f torch.Size([8, 1024, 16, 512])
         
         res = torch.einsum('bmnf,bmnf->bmf', attn, v + pos_enc)# !haofangfa 矩阵元素对应相乘并求reduce sum
         res = self.fc2(res) + pre
